@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:17
+    # ports:
+    #   - "5432:5432" Uncomment if you want to access the DB directly
+    restart: always 
+    env_file: .env-db
+    volumes:
+      - db_storage:/var/lib/postgresql/data
+      - ./init-data.sh:/docker-entrypoint-initdb.d/init-data.sh
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -U lucas -d n8n",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p0
+    restart: always
+    env_file: .env-db
+    # ports:
+    #   - "6432:6432"   # Expose pgbouncer port
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+
+  redis:
+    image: redis:8.2
+    restart: always
+    volumes:
+      - redis_storage:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The N8N Editor UI and API
+  n8n:
+    image: n8nio/n8n:stable
+    restart: always
+    env_file: .env-main
+    volumes:
+      - n8n_storage:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5678:5678" # Expose n8n port
+
+  # The N8N Worker - for executing workflows
+  worker:
+    image: n8nio/n8n:stable
+    restart: always
+    env_file: .env-worker
+    command: worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # The N8N Webhook Worker - for receiving webhooks
+  webhook-worker:
+    image: n8nio/n8n:stable
+    restart: always
+    env_file: .env-worker
+    command: webhook
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5679:5678" # Expose webhook port
+
+volumes:
+  db_storage:
+  n8n_storage:
+  redis_storage:
